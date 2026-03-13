@@ -86,16 +86,17 @@ export function PostFeed({ initialPosts }: PostFeedProps) {
 
     startTransition(async () => {
       addOptimisticUpdate({ type: "create", post: tempPost });
-      try {
-        const realPost = await createPost({
-          ...data,
-          authorId: initialPosts[0]?.authorId || "cmmobm0f0003cbdo4beu74v1h",
-        });
-        setAllPosts((current) => [realPost, ...current]);
+      const result = await createPost({
+        ...data,
+        authorId: initialPosts[0]?.authorId || "cmmobm0f0003cbdo4beu74v1h",
+      });
+
+      if (result.success) {
+        setAllPosts((current) => [result.data, ...current]);
         setShowCreateForm(false);
         toast.success("Post created successfully!");
-      } catch (error) {
-        toast.error("Failed to create post");
+      } else {
+        toast.error(result.error);
       }
     });
   };
@@ -112,14 +113,15 @@ export function PostFeed({ initialPosts }: PostFeedProps) {
           post: { ...postToEdit, ...data },
         });
       }
-      try {
-        const updated = await updatePost(id, data);
+      const result = await updatePost(id, data);
+
+      if (result.success) {
         setAllPosts((current) =>
-          current.map((p) => (p.id === id ? updated : p)),
+          current.map((p) => (p.id === id ? result.data : p)),
         );
         toast.success("Post updated!");
-      } catch (error) {
-        toast.error("Failed to update post");
+      } else {
+        toast.error(result.error);
       }
     });
   };
@@ -127,12 +129,13 @@ export function PostFeed({ initialPosts }: PostFeedProps) {
   const handleDelete = async (postId: string) => {
     startTransition(async () => {
       addOptimisticUpdate({ type: "delete", postId });
-      try {
-        await deletePost(postId);
+      const result = await deletePost(postId);
+
+      if (result.success) {
         setAllPosts((current) => current.filter((p) => p.id !== postId));
         toast.success("Post deleted");
-      } catch (error) {
-        toast.error("Failed to delete post");
+      } else {
+        toast.error(result.error);
       }
     });
   };
@@ -155,37 +158,41 @@ export function PostFeed({ initialPosts }: PostFeedProps) {
   const handleLike = async (postId: string) => {
     startTransition(async () => {
       addOptimisticUpdate({ type: "like", postId });
-      try {
-        await toggleLike(postId);
+      const result = await toggleLike(postId);
+
+      if (result.success) {
         setAllPosts((current) =>
           current.map((p) =>
             p.id === postId ? { ...p, likes: p.likes + 1 } : p,
           ),
         );
-      } catch (error) {
-        toast.error("Failed to like post");
+      } else {
+        toast.error(result.error);
       }
     });
   };
 
   const handleCleanup = async () => {
     startTransition(async () => {
-      setIsCleaning(true);
-      addOptimisticUpdate({ type: "cleanup" });
       try {
+        setIsCleaning(true);
+        addOptimisticUpdate({ type: "cleanup" });
         const result = await cleanupDuplicates();
-        setAllPosts((current) => {
-          const seen = new Set<string>();
-          return current.filter((post) => {
-            const key = `${post.title.trim()}|${post.content.trim()}`;
-            if (seen.has(key)) return false;
-            seen.add(key);
-            return true;
+
+        if (result.success) {
+          setAllPosts((current) => {
+            const seen = new Set<string>();
+            return current.filter((post) => {
+              const key = `${post.title.trim()}|${post.content.trim()}`;
+              if (seen.has(key)) return false;
+              seen.add(key);
+              return true;
+            });
           });
-        });
-        toast.success(`Removed ${result.deletedCount} duplicates!`);
-      } catch (error) {
-        toast.error("Cleanup failed");
+          toast.success(`Removed ${result.data.deletedCount} duplicates!`);
+        } else {
+          toast.error(result.error);
+        }
       } finally {
         setIsCleaning(false);
       }
