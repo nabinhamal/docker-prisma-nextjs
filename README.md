@@ -8,6 +8,7 @@ This project uses Docker Compose to orchestrate a multi-container environment op
 
 - **Nginx Gateway**: Entry point (Port 80) providing Load Balancing, Caching, and Rate Limiting.
 - **Application replicas**: Multiple Next.js instances running with Hot Module Replacement (HMR).
+- **WebSocket Service**: Dedicated Fastify service for real-time communication.
 - **PostgreSQL**: Persistent database storage.
 - **Prisma Studio**: Database management UI (Port 5555).
 
@@ -75,6 +76,55 @@ Change the `APP_REPLICAS` value in `.env` and run `docker-compose up`. Nginx wil
 - **Load Balancing**: Check the `X-Upstream` header in the response via browser tools or `curl`.
 - **Caching**: Check the `X-Cache-Status` header (HIT/MISS).
 
+### Restarting & Monitoring Services
+
+To restart services without rebuilding images:
+
+```bash
+# Restart Nginx
+docker compose restart nginx
+
+# Restart App (Next.js)
+docker compose restart app
+
+# Recreate container to pick up .env/yml changes (no rebuild)
+docker compose up -d --no-deps <service-name>
+```
+
+To view service logs:
+
+```bash
+# View logs for a specific service (e.g., studio)
+docker compose logs <service-name>
+
+# View and follow logs
+docker compose logs -f <service-name>
+```
+
+### Database Operations (Prisma)
+
+To generate the Prisma client or push schema changes to the database:
+
+```bash
+# Generate Prisma client
+docker compose exec app npx prisma generate
+
+# Sync schema with database
+docker compose exec app npx prisma db push
+
+### Database Seeding
+
+To populate the database with 100 dummy users, profiles, and associated posts:
+
+```bash
+# Optional: Ensure dependencies are installed in the container
+docker compose exec app npm install @faker-js/faker @types/pg
+
+# Run the seeding script
+docker compose exec app npx prisma db seed
+```
+```
+
 ### Troubleshooting & Cleanup
 
 If you change the database volume structure or encounter version errors:
@@ -124,7 +174,13 @@ In [docker-compose.yml](file:///Users/d3vil/Documents/projects/prisma/docker-com
 
 Nginx acts as a "Reverse Proxy" and "API Gateway," serving as the only public entry point to the system.
 
-#### 1. Load Balancing (`least_conn`)
+#### 1. Load Balancing Algorithms
+
+Nginx supports several algorithms to distribute traffic. We have configured **Least Connections**, but others are available:
+
+- **Least Connections (`least_conn`)**: (Current Config) Nginx tracks active requests and sends new traffic to the instance with the fewest connections. Ideal for requests that vary in processing time.
+- **Round Robin (Default)**: Requests are distributed sequentially across the list of servers. Best when all servers have similar specifications and requests are uniform.
+- **IP Hash (`ip_hash`)**: Uses a hash of the client's IP address to determine the server. This ensures "sticky sessions," where a client consistently hits the same server instance.
 
 Current config in [nginx.conf](file:///Users/d3vil/Documents/projects/prisma/nginx/nginx.conf):
 
@@ -136,7 +192,7 @@ upstream app_servers {
 ```
 
 - **How it works**: When you run multiple instances (e.g., via `APP_REPLICAS=3`), Docker's internal DNS returns multiple IPs for the name `app`.
-- **`least_conn`**: Nginx tracks how many active requests each instance is handling and sends new traffic to the instance with the fewest connections. This prevents any single container from being overwhelmed while others are idle.
+- **Why Least Conn?**: It prevents any single container from being overwhelmed while others are idle, especially useful in development where some requests (like Prisma migrations) might take longer than others.
 
 #### 2. Micro-Caching (`proxy_cache`)
 
